@@ -605,3 +605,76 @@ class VariancePreservingConditionalFlowMatcher(ConditionalFlowMatcher):
         del xt
         t = pad_t_like_x(t, x0)
         return math.pi / 2 * (torch.cos(math.pi / 2 * t) * x1 - torch.sin(math.pi / 2 * t) * x0)
+
+
+class LowVarianceConditionalFlowMatcher(ConditionalFlowMatcher):
+    """Child class for low-variance conditional flow matching method. This class implements
+    a novel method for computing the vector field.
+
+    It overrides the sample_location_and_conditional_flow.
+    """
+
+    def __init__(self, p0, sigma: Union[float, int] = 0.0):
+        r"""Initialize the ConditionalFlowMatcher class. It requires the hyper-parameter $\sigma$.
+
+        Parameters
+        ----------
+        p0 : Probability density function for t=0. Must implement the log_prob method.
+        vector_field_batch_size : size of the mini-batch used for computing the approximate marginal vector field.
+        sigma : Union[float, int]
+        """
+        super().__init__(sigma)
+        self.p0 = p0
+
+    def sample_location_and_conditional_flow(self, x0, x1, x1_vf_batch, t=None, return_noise=False):
+        r"""
+        Compute the sample xt (drawn from N(t * x1 + (1 - t) * x0, sigma))
+        and an estimate of the marginal vector field ut, 
+        computed with respect to the minibatch.
+
+        Parameters
+        ----------
+        x0 : Tensor, shape (bs, *dim)
+            represents the source minibatch
+        x1 : Tensor, shape (bs, *dim)
+            represents the target minibatch
+        x1_vf_batch : Tensore, shape (vfbs, *dim)
+            a second minibatch from the target distribution, used for computing the marginal vector field
+        (optionally) t : Tensor, shape (bs)
+            represents the time levels
+            if None, drawn from uniform [0,1]
+        return_noise : bool
+            return the noise sample epsilon
+
+        Returns
+        -------
+        t : FloatTensor, shape (bs)
+        xt : Tensor, shape (bs, *dim)
+            represents the samples drawn from probability path pt
+        ut : marginal vector field ut
+        (optionally) epsilon : Tensor, shape (bs, *dim) such that xt = mu_t + sigma_t * epsilon
+        """
+        if t is None:
+            t = torch.rand(x0.shape[0]).type_as(x0)
+        assert len(t) == x0.shape[0], "t has to have batch size dimension"
+
+        eps = self.sample_noise_like(x0)
+        xt = self.sample_xt(x0, x1, t, eps)
+
+        # compute an estimate of the marginal vector field
+        ut = torch.zeros_like(xt)
+        deno = 1-(1-self.sigma)*t
+        for i in range(x0.shape[0]):
+            # make sure that the value of x1 that generated xt[i] is in the batch to avoid 
+            # having all probabilities equal to zero
+            x1_vf_batch[0] = x1[i]
+            # batch computation of the values of x0 corresponding to xt[i] and the dataset of x1
+            x0_xbar = (xt[i] - t[i]*x1_vf_batch)/deno[i]
+            # batch computation of the probabilities associated to these values of x0
+            prob = torch.exp(self.p0.log_prob(x0_xbar))
+            norm_prob = prob / torch.sum(prob).item()
+            # estimate the vector field
+            v_batch = (x1_vf_batch - (1-self.sigma)*xt[i]) / deno[i]
+            ut[i] = torch.sum(norm_prob * v_batch.T, dim=1)
+
+        return t, xt, ut
