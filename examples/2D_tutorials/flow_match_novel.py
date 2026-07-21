@@ -96,7 +96,7 @@ savedir = "models/8gaussian-moons"
 os.makedirs(savedir, exist_ok=True)
 SAVE_DATA = 0
 LOAD_DATA = 0
-METHOD = "STANDARD_CFM" # STANDARD_CFM or OPTIMAL_TRANSPORT or NOVEL
+METHOD = "NOVEL" # STANDARD_CFM or OPTIMAL_TRANSPORT or NOVEL
 DATASET = "moons"
 batch_size = 128
 TRAINING_EPOCHS = 30000
@@ -239,3 +239,5 @@ else:
 
 if(METHOD=="STANDARD_CFM"):
     np.savez("nll_standard_cfm.npz", epochs=epochs, nnl_scores=nll_scores)
+
+plt.show()
